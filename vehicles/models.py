@@ -74,3 +74,95 @@ class Vehicle(models.Model):
         return f"{self.make.name} {self.model.name} - {self.fuel_type}"
 
 
+# ============== MOTORCYCLE MODELS ==============
+
+class MotorcycleMake(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class MotorcycleModel(models.Model):
+    make = models.ForeignKey(MotorcycleMake, on_delete=models.CASCADE)
+    name = models.CharField(max_length=200)
+    model_number = models.CharField(max_length=100, blank=True, null=True)
+
+    class Meta:
+        unique_together = ['make', 'name']
+
+    def __str__(self):
+        return f"{self.make.name} {self.name}"
+
+
+class Motorcycle(models.Model):
+    MOTORCYCLE_TRANSMISSION_CHOICES = [
+        ("3MT", "3-speed Manual"),
+        ("4MT", "4-speed Manual"),
+        ("5MT", "5-speed Manual"),
+        ("6MT", "6-speed Manual"),
+        ("CVT", "Continuously Variable Transmission"),
+        ("DCT", "Dual Clutch Transmission"),
+        ("AUTO", "Automatic (Other)"),
+        ("NONE", "No Gears / Electric"),
+    ]
+
+    MOTORCYCLE_FUEL_CHOICES = [
+        ("GASOLINE", "Gasoline"),
+        ("ELECTRIC", "Electric"),
+    ]
+
+    make = models.ForeignKey(MotorcycleMake, on_delete=models.CASCADE)
+    model = models.ForeignKey(MotorcycleModel, on_delete=models.CASCADE)
+    model_number = models.CharField(max_length=100, blank=True, null=True)
+    transmission = models.CharField(
+        max_length=10,
+        choices=MOTORCYCLE_TRANSMISSION_CHOICES,
+        blank=True,
+        null=True
+    )
+    engine_capacity = models.CharField(max_length=50, blank=True, null=True)  # Can be cc or null
+    seating = models.IntegerField()
+    fuel = models.CharField(max_length=20, choices=MOTORCYCLE_FUEL_CHOICES)
+    crsp = models.DecimalField(max_digits=15, decimal_places=2)  # Cost in KES
+
+    class Meta:
+        unique_together = ['make', 'model', 'model_number', 'transmission', 'engine_capacity']
+
+    def __str__(self):
+        return f"{self.make.name} {self.model.name} - {self.fuel}"
+
+
+# ============== HEAVY MACHINERY MODELS ==============
+
+class HeavyMachineryMake(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+
+    def __str__(self):
+        return self.name
+
+
+class HeavyMachineryModel(models.Model):
+    make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
+    name = models.CharField(max_length=200)
+
+    class Meta:
+        unique_together = ['make', 'name']
+
+    def __str__(self):
+        return f"{self.make.name} {self.name}"
+
+
+class HeavyMachinery(models.Model):
+    make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
+    model = models.ForeignKey(HeavyMachineryModel, on_delete=models.CASCADE)
+    horsepower = models.CharField(max_length=50)  # Stored as string for flexibility (e.g., "150HP", "150-200HP")
+    crsp = models.DecimalField(max_digits=15, decimal_places=2)  # Cost in KES
+
+    class Meta:
+        unique_together = ['make', 'model', 'horsepower']
+
+    def __str__(self):
+        return f"{self.make.name} {self.model.name} - {self.horsepower}"
+
+
