@@ -46,6 +46,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'drf_spectacular',
     'django_celery_beat',
+
+    # Created apps
+    'vehicles',
 ]
 
 MIDDLEWARE = [
