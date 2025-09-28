@@ -1,12 +1,17 @@
 from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal
+import uuid
 
 class VehicleMake(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
         return self.name
 
 class VehicleModel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(VehicleMake, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     model_number = models.CharField(max_length=100, blank=True, null=True)
@@ -18,6 +23,8 @@ class VehicleModel(models.Model):
         return f"{self.make.name} {self.name}"
 
 class Vehicle(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     TRANSMISSION_CHOICES = [
         ('AT', 'Automatic'),
         ('MT', 'Manual'),
@@ -65,7 +72,15 @@ class Vehicle(models.Model):
     gvw = models.CharField(max_length=50, blank=True, null=True)  # Gross Vehicle Weight
     seating = models.IntegerField(blank=True, null=True)
     fuel_type = models.CharField(max_length=20, choices=FUEL_TYPE_CHOICES)
-    crsp = models.DecimalField(max_digits=15, decimal_places=2)  # Cost in KES
+
+    # Updated CRSP field with better constraints for money
+    crsp = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        verbose_name='Cost (KES)',
+        help_text='Cost in Kenyan Shillings'
+    )
 
     class Meta:
         unique_together = ['make', 'model', 'model_number', 'transmission', 'drive_configuration']
@@ -73,10 +88,21 @@ class Vehicle(models.Model):
     def __str__(self):
         return f"{self.make.name} {self.model.name} - {self.fuel_type}"
 
+    @property
+    def crsp_in_cents(self):
+        """Returns the cost in cents (100 cents = 1 KES)"""
+        return int(self.crsp * 100)
+
+    @property
+    def formatted_price(self):
+        """Returns formatted price string"""
+        return f"KES {self.crsp:,.2f}"
+
 
 # ============== MOTORCYCLE MODELS ==============
 
 class MotorcycleMake(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
@@ -84,6 +110,7 @@ class MotorcycleMake(models.Model):
 
 
 class MotorcycleModel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(MotorcycleMake, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     model_number = models.CharField(max_length=100, blank=True, null=True)
@@ -96,6 +123,8 @@ class MotorcycleModel(models.Model):
 
 
 class Motorcycle(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+
     MOTORCYCLE_TRANSMISSION_CHOICES = [
         ("3MT", "3-speed Manual"),
         ("4MT", "4-speed Manual"),
@@ -124,7 +153,15 @@ class Motorcycle(models.Model):
     engine_capacity = models.CharField(max_length=50, blank=True, null=True)  # Can be cc or null
     seating = models.IntegerField()
     fuel = models.CharField(max_length=20, choices=MOTORCYCLE_FUEL_CHOICES)
-    crsp = models.DecimalField(max_digits=15, decimal_places=2)  # Cost in KES
+
+    # Updated CRSP field with better constraints for money
+    crsp = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        verbose_name='Cost (KES)',
+        help_text='Cost in Kenyan Shillings'
+    )
 
     class Meta:
         unique_together = ['make', 'model', 'model_number', 'transmission', 'engine_capacity']
@@ -132,10 +169,24 @@ class Motorcycle(models.Model):
     def __str__(self):
         return f"{self.make.name} {self.model.name} - {self.fuel}"
 
+    @property
+    def crsp_in_cents(self):
+        """Returns the cost in cents (100 cents = 1 KES)"""
+        return int(self.crsp * 100)
+
+    @property
+    def formatted_price(self):
+        """Returns formatted price string"""
+        return f"KES {self.crsp:,.2f}"
+
 
 # ============== HEAVY MACHINERY MODELS ==============
 
+"""
+This entails tractors and graders
+"""
 class HeavyMachineryMake(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
@@ -143,6 +194,7 @@ class HeavyMachineryMake(models.Model):
 
 
 class HeavyMachineryModel(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
 
@@ -154,10 +206,19 @@ class HeavyMachineryModel(models.Model):
 
 
 class HeavyMachinery(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
     model = models.ForeignKey(HeavyMachineryModel, on_delete=models.CASCADE)
     horsepower = models.CharField(max_length=50)  # Stored as string for flexibility (e.g., "150HP", "150-200HP")
-    crsp = models.DecimalField(max_digits=15, decimal_places=2)  # Cost in KES
+
+    # Updated CRSP field with better constraints for money
+    crsp = models.DecimalField(
+        max_digits=15,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        verbose_name='Cost (KES)',
+        help_text='Cost in Kenyan Shillings'
+    )
 
     class Meta:
         unique_together = ['make', 'model', 'horsepower']
@@ -165,4 +226,12 @@ class HeavyMachinery(models.Model):
     def __str__(self):
         return f"{self.make.name} {self.model.name} - {self.horsepower}"
 
+    @property
+    def crsp_in_cents(self):
+        """Returns the cost in cents (100 cents = 1 KES)"""
+        return int(self.crsp * 100)
 
+    @property
+    def formatted_price(self):
+        """Returns formatted price string"""
+        return f"KES {self.crsp:,.2f}"
