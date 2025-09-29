@@ -4,14 +4,12 @@ from decimal import Decimal
 import uuid
 
 class VehicleMake(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
         return self.name
 
 class VehicleModel(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(VehicleMake, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     model_number = models.CharField(max_length=100, blank=True, null=True)
@@ -23,8 +21,6 @@ class VehicleModel(models.Model):
         return f"{self.make.name} {self.name}"
 
 class Vehicle(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-
     TRANSMISSION_CHOICES = [
         ('AT', 'Automatic'),
         ('MT', 'Manual'),
@@ -102,7 +98,6 @@ class Vehicle(models.Model):
 # ============== MOTORCYCLE MODELS ==============
 
 class MotorcycleMake(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
@@ -110,7 +105,6 @@ class MotorcycleMake(models.Model):
 
 
 class MotorcycleModel(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(MotorcycleMake, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
     model_number = models.CharField(max_length=100, blank=True, null=True)
@@ -123,7 +117,6 @@ class MotorcycleModel(models.Model):
 
 
 class Motorcycle(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
 
     MOTORCYCLE_TRANSMISSION_CHOICES = [
         ("3MT", "3-speed Manual"),
@@ -186,7 +179,6 @@ class Motorcycle(models.Model):
 This entails tractors and graders
 """
 class HeavyMachineryMake(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=100, unique=True)
 
     def __str__(self):
@@ -194,7 +186,6 @@ class HeavyMachineryMake(models.Model):
 
 
 class HeavyMachineryModel(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
     name = models.CharField(max_length=200)
 
@@ -206,7 +197,6 @@ class HeavyMachineryModel(models.Model):
 
 
 class HeavyMachinery(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
     model = models.ForeignKey(HeavyMachineryModel, on_delete=models.CASCADE)
     horsepower = models.CharField(max_length=50)  # Stored as string for flexibility (e.g., "150HP", "150-200HP")

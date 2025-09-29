@@ -1,414 +1,339 @@
-# management/commands/import_crsp_data.py
 import pandas as pd
-import logging
-from decimal import Decimal, InvalidOperation
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
-from django.core.exceptions import ValidationError
-import os
-import sys
-
-# Import your models (adjust the import path as needed)
+from decimal import Decimal, InvalidOperation
 from vehicles.models import (
     VehicleMake, VehicleModel, Vehicle,
     MotorcycleMake, MotorcycleModel, Motorcycle
 )
-
-# Set up logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
+import os
 
 class Command(BaseCommand):
-    help = 'Import CRSP data from Excel file for vehicles and motorcycles'
+    help = 'Populate vehicle and motorcycle data from CRSP.xlsx'
 
     def add_arguments(self, parser):
         parser.add_argument(
-            '--file',
+            'excel_file',
             type=str,
-            default='CRSP.xlsx',
-            help='Path to the Excel file (default: CRSP.xlsx)'
+            help='Path to the CRSP.xlsx file'
         )
         parser.add_argument(
-            '--dry-run',
+            '--clear',
             action='store_true',
-            help='Run the import without saving to database'
-        )
-        parser.add_argument(
-            '--skip-errors',
-            action='store_true',
-            help='Continue import even if some rows fail'
+            help='Clear existing data before importing',
         )
 
     def handle(self, *args, **options):
-        file_path = options['file']
-        dry_run = options['dry_run']
-        skip_errors = options['skip_errors']
+        excel_file = options['excel_file']
 
-        if not os.path.exists(file_path):
-            self.stdout.write(self.style.ERROR(f'File not found: {file_path}'))
-            sys.exit(1)
-
-        self.stdout.write(self.style.SUCCESS(f'Starting import from {file_path}'))
-
-        if dry_run:
-            self.stdout.write(self.style.WARNING('DRY RUN MODE - No data will be saved'))
+        if not os.path.exists(excel_file):
+            raise CommandError(f'Excel file "{excel_file}" does not exist.')
 
         try:
+            # Read the Excel file
+            self.stdout.write('Reading Excel file...')
+            vehicles_df = pd.read_excel(excel_file, sheet_name='M.Vehicle CRSP July 2025')
+            motorcycles_df = pd.read_excel(excel_file, sheet_name='Motor Cycles July 2025')
+
+            if options['clear']:
+                self.stdout.write('Clearing existing data...')
+                self.clear_existing_data()
+
             # Process vehicles
-            self.import_vehicles(file_path, dry_run, skip_errors)
+            self.stdout.write('Processing vehicles...')
+            self.process_vehicles(vehicles_df)
 
             # Process motorcycles
-            self.import_motorcycles(file_path, dry_run, skip_errors)
+            self.stdout.write('Processing motorcycles...')
+            self.process_motorcycles(motorcycles_df)
 
-            self.stdout.write(self.style.SUCCESS('Import completed successfully!'))
+            self.stdout.write(
+                self.style.SUCCESS('Successfully populated database from Excel file.')
+            )
 
         except Exception as e:
-            self.stdout.write(self.style.ERROR(f'Import failed: {str(e)}'))
-            logger.exception("Import failed with exception")
-            sys.exit(1)
+            raise CommandError(f'Error processing Excel file: {str(e)}')
+
+    def clear_existing_data(self):
+        """Clear existing vehicle and motorcycle data"""
+        Vehicle.objects.all().delete()
+        VehicleModel.objects.all().delete()
+        VehicleMake.objects.all().delete()
+        Motorcycle.objects.all().delete()
+        MotorcycleModel.objects.all().delete()
+        MotorcycleMake.objects.all().delete()
 
     def clean_string(self, value):
         """Clean and normalize string values"""
-        if pd.isna(value) or value == '' or str(value).strip().upper() in ['N/A', 'NA', 'NULL', 'NONE', '-']:
+        if pd.isna(value) or value is None:
             return None
         return str(value).strip()
 
     def clean_decimal(self, value):
         """Clean and convert decimal values"""
-        if pd.isna(value) or value == '':
-            return Decimal('0.00')
+        if pd.isna(value) or value is None:
+            return None
 
-        # Remove any non-numeric characters except decimal point
-        cleaned = str(value).replace(',', '').replace('KES', '').replace('KSH', '').strip()
+        # Handle string values that might have commas or currency symbols
+        if isinstance(value, str):
+            # Remove common currency symbols and commas
+            cleaned = value.replace('KES', '').replace(',', '').replace(' ', '').strip()
+            if not cleaned:
+                return None
+            try:
+                return Decimal(cleaned)
+            except (InvalidOperation, ValueError):
+                return None
 
         try:
-            return Decimal(cleaned)
+            return Decimal(str(value))
         except (InvalidOperation, ValueError):
-            logger.warning(f"Could not convert '{value}' to decimal, using 0.00")
-            return Decimal('0.00')
+            return None
 
-    def clean_integer(self, value, default=None):
+    def clean_integer(self, value):
         """Clean and convert integer values"""
-        if pd.isna(value) or value == '':
-            return default
-
+        if pd.isna(value) or value is None:
+            return None
         try:
-            # Handle ranges like "5-7" by taking the first number
-            cleaned = str(value).split('-')[0].strip()
-            return int(float(cleaned))
+            return int(float(value))
         except (ValueError, TypeError):
-            logger.warning(f"Could not convert '{value}' to integer, using default {default}")
-            return default
+            return None
 
-    def map_transmission(self, transmission, is_motorcycle=False):
+    def map_transmission(self, transmission_value, is_motorcycle=False):
         """Map transmission values to model choices"""
-        if not transmission:
-            return None if is_motorcycle else 'MT'  # Default for vehicles
+        if pd.isna(transmission_value) or transmission_value is None:
+            return None
 
-        trans_upper = transmission.upper()
+        transmission = str(transmission_value).strip().upper()
 
         if is_motorcycle:
             # Motorcycle transmission mapping
-            if 'CVT' in trans_upper:
-                return 'CVT'
-            elif 'DCT' in trans_upper:
-                return 'DCT'
-            elif 'AUTO' in trans_upper:
-                return 'AUTO'
-            elif 'ELECTRIC' in trans_upper or 'NONE' in trans_upper:
-                return 'NONE'
-            elif '3' in trans_upper:
-                return '3MT'
-            elif '4' in trans_upper:
-                return '4MT'
-            elif '5' in trans_upper:
-                return '5MT'
-            elif '6' in trans_upper:
-                return '6MT'
-            else:
-                return '5MT'  # Default
+            mapping = {
+                '3MT': '3MT',
+                '4MT': '4MT',
+                '5MT': '5MT',
+                '6MT': '6MT',
+                'CVT': 'CVT',
+                'DCT': 'DCT',
+                'AUTO': 'AUTO',
+                'AUTOMATIC': 'AUTO',
+                'NONE': 'NONE',
+                'NO GEARS': 'NONE',
+                'ELECTRIC': 'NONE',
+            }
         else:
             # Vehicle transmission mapping
-            if 'AUTO' in trans_upper or 'AT' in trans_upper:
-                return 'AT'
-            elif 'CVT' in trans_upper:
-                return 'CVT'
-            elif 'AMT' in trans_upper:
-                return 'AMT'
-            elif 'MANUAL' in trans_upper or 'MT' in trans_upper:
-                return 'MT'
-            else:
-                return 'MT'  # Default
+            mapping = {
+                'AT': 'AT',
+                'AUTO': 'AT',
+                'AUTOMATIC': 'AT',
+                'MT': 'MT',
+                'MANUAL': 'MT',
+                'CVT': 'CVT',
+                'AMT': 'AMT',
+                'AUTOMATED MANUAL': 'AMT',
+            }
 
-    def map_drive_config(self, drive_config):
+        return mapping.get(transmission, transmission if not is_motorcycle else None)
+
+    def map_drive_configuration(self, drive_config):
         """Map drive configuration values to model choices"""
-        if not drive_config:
-            return 'FWD'  # Default
+        if pd.isna(drive_config) or drive_config is None:
+            return None
 
-        config_upper = drive_config.upper()
-
-        if 'AWD' in config_upper or 'ALL' in config_upper:
-            return 'AWD'
-        elif '4WD' in config_upper or 'FOUR' in config_upper:
-            return '4WD'
-        elif 'RWD' in config_upper or 'REAR' in config_upper:
-            return 'RWD'
-        elif '2WD' in config_upper or 'TWO' in config_upper:
-            return '2WD'
-        else:
-            return 'FWD'  # Default
+        config = str(drive_config).strip().upper()
+        mapping = {
+            'FWD': 'FWD',
+            'FRONT WHEEL DRIVE': 'FWD',
+            'RWD': 'RWD',
+            'REAR WHEEL DRIVE': 'RWD',
+            '4WD': '4WD',
+            'FOUR WHEEL DRIVE': '4WD',
+            'AWD': 'AWD',
+            'ALL WHEEL DRIVE': 'AWD',
+            '2WD': '2WD',
+            'TWO WHEEL DRIVE': '2WD',
+        }
+        return mapping.get(config, config)
 
     def map_body_type(self, body_type):
         """Map body type values to model choices"""
-        if not body_type:
-            return 'SEDAN'  # Default
+        if pd.isna(body_type) or body_type is None:
+            return None
 
-        body_upper = body_type.upper()
-
-        if 'SUV' in body_upper:
-            return 'SUV'
-        elif 'SEDAN' in body_upper:
-            return 'SEDAN'
-        elif 'HATCH' in body_upper:
-            return 'HATCHBACK'
-        elif 'WAGON' in body_upper and 'STATION' in body_upper:
-            return 'S.WAGON'
-        elif 'WAGON' in body_upper:
-            return 'WAGON'
-        elif 'COUPE' in body_upper:
-            return 'COUPE'
-        elif 'CONVERT' in body_upper:
-            return 'CONVERTIBLE'
-        elif 'VAN' in body_upper:
-            return 'VAN'
-        elif 'TRUCK' in body_upper:
-            return 'TRUCK'
-        elif 'PICKUP' in body_upper or 'PICK UP' in body_upper:
-            return 'PICKUP'
-        else:
-            return 'SEDAN'  # Default
+        body = str(body_type).strip().upper()
+        mapping = {
+            'SUV': 'SUV',
+            'SEDAN': 'SEDAN',
+            'HATCHBACK': 'HATCHBACK',
+            'WAGON': 'WAGON',
+            'S.WAGON': 'S.WAGON',
+            'STATION WAGON': 'S.WAGON',
+            'COUPE': 'COUPE',
+            'CONVERTIBLE': 'CONVERTIBLE',
+            'VAN': 'VAN',
+            'TRUCK': 'TRUCK',
+            'PICKUP': 'PICKUP',
+        }
+        return mapping.get(body, body)
 
     def map_fuel_type(self, fuel_type, is_motorcycle=False):
         """Map fuel type values to model choices"""
-        if not fuel_type:
-            return 'GASOLINE'  # Default
+        if pd.isna(fuel_type) or fuel_type is None:
+            return None
 
-        fuel_upper = fuel_type.upper()
+        fuel = str(fuel_type).strip().upper()
 
         if is_motorcycle:
-            if 'ELECTRIC' in fuel_upper:
-                return 'ELECTRIC'
-            else:
-                return 'GASOLINE'
+            mapping = {
+                'GASOLINE': 'GASOLINE',
+                'PETROL': 'GASOLINE',
+                'ELECTRIC': 'ELECTRIC',
+            }
         else:
-            if 'DIESEL' in fuel_upper:
-                return 'DIESEL'
-            elif 'ELECTRIC' in fuel_upper and 'HYBRID' not in fuel_upper:
-                return 'ELECTRIC'
-            elif 'PLUG' in fuel_upper:
-                return 'PLUG-IN HYBRID'
-            elif 'HYBRID' in fuel_upper:
-                return 'HYBRID'
-            elif 'PETROL' in fuel_upper:
-                return 'PETROL'
-            else:
-                return 'GASOLINE'
+            mapping = {
+                'GASOLINE': 'GASOLINE',
+                'PETROL': 'PETROL',
+                'DIESEL': 'DIESEL',
+                'ELECTRIC': 'ELECTRIC',
+                'HYBRID': 'HYBRID',
+                'PLUG-IN HYBRID': 'PLUG-IN HYBRID',
+                'PLUG IN HYBRID': 'PLUG-IN HYBRID',
+            }
+
+        return mapping.get(fuel, fuel)
 
     @transaction.atomic
-    def import_vehicles(self, file_path, dry_run, skip_errors):
-        """Import vehicle data from Excel"""
-        self.stdout.write('Importing vehicles...')
+    def process_vehicles(self, df):
+        """Process vehicle data from DataFrame"""
+        created_vehicles = 0
+        skipped_vehicles = 0
 
-        try:
-            # Read the vehicles sheet
-            df = pd.read_excel(file_path, sheet_name='M.Vehicle CRSP July 2025')
+        for index, row in df.iterrows():
+            try:
+                # Extract and clean data
+                make_name = self.clean_string(row.get('Make'))
+                model_name = self.clean_string(row.get('Model'))
+                model_number = self.clean_string(row.get('Model number'))
+                transmission = self.map_transmission(row.get('Transmission'))
+                drive_config = self.map_drive_configuration(row.get('Drive Configuration'))
+                engine_capacity = self.clean_string(row.get('Engine Capacity'))
+                body_type = self.map_body_type(row.get('Body Type '))  # Note the space in column name
+                gvw = self.clean_string(row.get('GVW'))
+                seating = self.clean_integer(row.get('Seating'))
+                fuel_type = self.map_fuel_type(row.get('Fuel'))
+                crsp = self.clean_decimal(row.get('CRSP (KES.)'))
 
-            # Clean column names
-            df.columns = df.columns.str.strip()
+                # Skip rows with missing essential data
+                if not all([make_name, model_name, crsp]):
+                    self.stdout.write(f"Skipping row {index + 2}: Missing essential data")
+                    skipped_vehicles += 1
+                    continue
 
-            success_count = 0
-            error_count = 0
+                # Create or get VehicleMake
+                vehicle_make, _ = VehicleMake.objects.get_or_create(name=make_name)
 
-            for index, row in df.iterrows():
-                try:
-                    # Extract and clean data
-                    make_name = self.clean_string(row.get('Make'))
-                    model_name = self.clean_string(row.get('Model'))
-
-                    if not make_name or not model_name:
-                        logger.warning(f"Row {index + 2}: Missing make or model, skipping")
-                        continue
-
-                    model_number = self.clean_string(row.get('Model number', row.get('Model\nnumber')))
-                    transmission = self.map_transmission(
-                        self.clean_string(row.get('Transmission'))
-                    )
-                    drive_config = self.map_drive_config(
-                        self.clean_string(row.get('Drive Configuration', row.get('Drive\nConfiguration')))
-                    )
-                    engine_capacity = self.clean_string(
-                        row.get('Engine Capacity', row.get('Engine\nCapacity'))
-                    ) or 'N/A'
-                    body_type = self.map_body_type(
-                        self.clean_string(row.get('Body Type', row.get('Body\nType')))
-                    )
-                    gvw = self.clean_string(row.get('GVW'))
-                    seating = self.clean_integer(row.get('Seating'))
-                    fuel_type = self.map_fuel_type(
-                        self.clean_string(row.get('Fuel'))
-                    )
-                    crsp = self.clean_decimal(row.get('CRSP (KES.)', row.get('CRSP (KES)')))
-
-                    if not dry_run:
-                        # Create or get VehicleMake
-                        vehicle_make, _ = VehicleMake.objects.get_or_create(
-                            name=make_name
-                        )
-
-                        # Create or get VehicleModel
-                        vehicle_model, _ = VehicleModel.objects.get_or_create(
-                            make=vehicle_make,
-                            name=model_name,
-                            defaults={'model_number': model_number}
-                        )
-
-                        # Create or update Vehicle
-                        vehicle, created = Vehicle.objects.update_or_create(
-                            make=vehicle_make,
-                            model=vehicle_model,
-                            model_number=model_number,
-                            transmission=transmission,
-                            drive_configuration=drive_config,
-                            defaults={
-                                'engine_capacity': engine_capacity,
-                                'body_type': body_type,
-                                'gvw': gvw,
-                                'seating': seating,
-                                'fuel_type': fuel_type,
-                                'crsp': crsp
-                            }
-                        )
-
-                        action = "Created" if created else "Updated"
-                        logger.info(f"{action} vehicle: {vehicle}")
-
-                    success_count += 1
-
-                except ValidationError as e:
-                    error_count += 1
-                    error_msg = f"Row {index + 2}: Validation error - {str(e)}"
-                    logger.error(error_msg)
-                    if not skip_errors:
-                        raise
-
-                except Exception as e:
-                    error_count += 1
-                    error_msg = f"Row {index + 2}: Unexpected error - {str(e)}"
-                    logger.error(error_msg)
-                    if not skip_errors:
-                        raise
-
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f'Vehicles: {success_count} imported successfully, {error_count} errors'
+                # Create or get VehicleModel
+                vehicle_model, _ = VehicleModel.objects.get_or_create(
+                    make=vehicle_make,
+                    name=model_name,
+                    defaults={'model_number': model_number}
                 )
-            )
 
-        except Exception as e:
-            logger.error(f"Failed to import vehicles: {str(e)}")
-            raise
+                # Create Vehicle (with get_or_create to avoid duplicates)
+                vehicle, created = Vehicle.objects.get_or_create(
+                    make=vehicle_make,
+                    model=vehicle_model,
+                    model_number=model_number or '',
+                    transmission=transmission or '',
+                    drive_configuration=drive_config or '',
+                    defaults={
+                        'engine_capacity': engine_capacity or '',
+                        'body_type': body_type or '',
+                        'gvw': gvw,
+                        'seating': seating,
+                        'fuel_type': fuel_type or '',
+                        'crsp': crsp,
+                    }
+                )
+
+                if created:
+                    created_vehicles += 1
+                else:
+                    # Update existing vehicle
+                    vehicle.engine_capacity = engine_capacity or ''
+                    vehicle.body_type = body_type or ''
+                    vehicle.gvw = gvw
+                    vehicle.seating = seating
+                    vehicle.fuel_type = fuel_type or ''
+                    vehicle.crsp = crsp
+                    vehicle.save()
+
+            except Exception as e:
+                self.stdout.write(f"Error processing vehicle row {index + 2}: {str(e)}")
+                skipped_vehicles += 1
+
+        self.stdout.write(f"Vehicles: {created_vehicles} created/updated, {skipped_vehicles} skipped")
 
     @transaction.atomic
-    def import_motorcycles(self, file_path, dry_run, skip_errors):
-        """Import motorcycle data from Excel"""
-        self.stdout.write('Importing motorcycles...')
+    def process_motorcycles(self, df):
+        """Process motorcycle data from DataFrame"""
+        created_motorcycles = 0
+        skipped_motorcycles = 0
 
-        try:
-            # Read the motorcycles sheet
-            df = pd.read_excel(file_path, sheet_name='Motor Cycles July 2025')
+        for index, row in df.iterrows():
+            try:
+                # Extract and clean data
+                make_name = self.clean_string(row.get('Make'))
+                model_name = self.clean_string(row.get('Model'))
+                model_number = self.clean_string(row.get('Model number'))
+                transmission = self.map_transmission(row.get('Transmission'), is_motorcycle=True)
+                engine_capacity = self.clean_string(row.get('Engine Capacity'))
+                seating = self.clean_integer(row.get('seating'))
+                fuel = self.map_fuel_type(row.get('Fuel'), is_motorcycle=True)
+                crsp = self.clean_decimal(row.get('CRSP (KES)'))
 
-            # Clean column names
-            df.columns = df.columns.str.strip()
+                # Skip rows with missing essential data
+                if not all([make_name, model_name, seating is not None, crsp]):
+                    self.stdout.write(f"Skipping motorcycle row {index + 2}: Missing essential data")
+                    skipped_motorcycles += 1
+                    continue
 
-            success_count = 0
-            error_count = 0
+                # Create or get MotorcycleMake
+                motorcycle_make, _ = MotorcycleMake.objects.get_or_create(name=make_name)
 
-            for index, row in df.iterrows():
-                try:
-                    # Extract and clean data
-                    make_name = self.clean_string(row.get('Make'))
-                    model_name = self.clean_string(row.get('Model'))
-
-                    if not make_name or not model_name:
-                        logger.warning(f"Row {index + 2}: Missing make or model, skipping")
-                        continue
-
-                    model_number = self.clean_string(row.get('Model number'))
-                    transmission = self.map_transmission(
-                        self.clean_string(row.get('Transmission')),
-                        is_motorcycle=True
-                    )
-                    engine_capacity = self.clean_string(row.get('Engine Capacity'))
-                    seating = self.clean_integer(row.get('seating'), default=2)
-                    fuel = self.map_fuel_type(
-                        self.clean_string(row.get('Fuel')),
-                        is_motorcycle=True
-                    )
-                    crsp = self.clean_decimal(row.get('CRSP (KES)', row.get('CRSP (KES.)')))
-
-                    if not dry_run:
-                        # Create or get MotorcycleMake
-                        motorcycle_make, _ = MotorcycleMake.objects.get_or_create(
-                            name=make_name
-                        )
-
-                        # Create or get MotorcycleModel
-                        motorcycle_model, _ = MotorcycleModel.objects.get_or_create(
-                            make=motorcycle_make,
-                            name=model_name,
-                            defaults={'model_number': model_number}
-                        )
-
-                        # Create or update Motorcycle
-                        motorcycle, created = Motorcycle.objects.update_or_create(
-                            make=motorcycle_make,
-                            model=motorcycle_model,
-                            model_number=model_number,
-                            transmission=transmission,
-                            engine_capacity=engine_capacity,
-                            defaults={
-                                'seating': seating or 2,
-                                'fuel': fuel,
-                                'crsp': crsp
-                            }
-                        )
-
-                        action = "Created" if created else "Updated"
-                        logger.info(f"{action} motorcycle: {motorcycle}")
-
-                    success_count += 1
-
-                except ValidationError as e:
-                    error_count += 1
-                    error_msg = f"Row {index + 2}: Validation error - {str(e)}"
-                    logger.error(error_msg)
-                    if not skip_errors:
-                        raise
-
-                except Exception as e:
-                    error_count += 1
-                    error_msg = f"Row {index + 2}: Unexpected error - {str(e)}"
-                    logger.error(error_msg)
-                    if not skip_errors:
-                        raise
-
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f'Motorcycles: {success_count} imported successfully, {error_count} errors'
+                # Create or get MotorcycleModel
+                motorcycle_model, _ = MotorcycleModel.objects.get_or_create(
+                    make=motorcycle_make,
+                    name=model_name,
+                    defaults={'model_number': model_number}
                 )
-            )
 
-        except Exception as e:
-            logger.error(f"Failed to import motorcycles: {str(e)}")
-            raise
+                # Create Motorcycle (with get_or_create to avoid duplicates)
+                motorcycle, created = Motorcycle.objects.get_or_create(
+                    make=motorcycle_make,
+                    model=motorcycle_model,
+                    model_number=model_number or '',
+                    transmission=transmission,
+                    engine_capacity=engine_capacity,
+                    defaults={
+                        'seating': seating,
+                        'fuel': fuel or '',
+                        'crsp': crsp,
+                    }
+                )
+
+                if created:
+                    created_motorcycles += 1
+                else:
+                    # Update existing motorcycle
+                    motorcycle.seating = seating
+                    motorcycle.fuel = fuel or ''
+                    motorcycle.crsp = crsp
+                    motorcycle.save()
+
+            except Exception as e:
+                self.stdout.write(f"Error processing motorcycle row {index + 2}: {str(e)}")
+                skipped_motorcycles += 1
+
+        self.stdout.write(f"Motorcycles: {created_motorcycles} created/updated, {skipped_motorcycles} skipped")
