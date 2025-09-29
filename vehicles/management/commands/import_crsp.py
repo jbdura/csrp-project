@@ -74,19 +74,24 @@ class Command(BaseCommand):
         if pd.isna(value) or value is None:
             return None
 
-        # Handle string values that might have commas or currency symbols
         if isinstance(value, str):
-            # Remove common currency symbols and commas
-            cleaned = value.replace('KES', '').replace(',', '').replace(' ', '').strip()
+            cleaned = (
+                value.replace('KES', '')
+                .replace(',', '')
+                .replace(' ', '')
+                .strip()
+            )
             if not cleaned:
                 return None
             try:
-                return Decimal(cleaned)
+                return Decimal(cleaned).quantize(Decimal("1"))
             except (InvalidOperation, ValueError):
                 return None
 
         try:
-            return Decimal(str(value))
+            dec = Decimal(str(value))
+            # normalize to 0 decimal places
+            return dec.quantize(Decimal("1"))
         except (InvalidOperation, ValueError):
             return None
 

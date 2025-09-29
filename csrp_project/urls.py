@@ -34,7 +34,8 @@ urlpatterns = [
 
     # API URLs
     path('api/', include('rest_framework.urls')),
-    path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
+    # path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
+    path('api/vehicles/', include('vehicles.urls')),
     path('calculator/', include('calculator.urls'))
 ]
 
