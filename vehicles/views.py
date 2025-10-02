@@ -2,7 +2,7 @@
 from rest_framework import generics, status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from rest_framework.pagination import PageNumberPagination
+from rest_framework.pagination import PageNumberPagination, CursorPagination
 from rest_framework.filters import SearchFilter, OrderingFilter
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
@@ -21,11 +21,12 @@ from .serializers import (
     VehicleSearchSerializer
 )
 
-# Custom pagination
-class StandardResultsSetPagination(PageNumberPagination):
-    page_size = 20
+# Custom cursor pagination for better performance with large datasets
+class VehicleCursorPagination(CursorPagination):
+    page_size = 50
     page_size_query_param = 'page_size'
     max_page_size = 100
+    ordering = 'id'  # Ensure consistent ordering
 
 
 # ============== VEHICLE VIEWS ==============
@@ -34,7 +35,7 @@ class VehicleMakeListView(generics.ListAPIView):
     """List all vehicle makes"""
     queryset = VehicleMake.objects.all().order_by('name')
     serializer_class = VehicleMakeSerializer
-    pagination_class = None  # No pagination for makes
+    pagination_class = None
 
 
 class VehicleModelListView(generics.ListAPIView):
@@ -52,12 +53,11 @@ class VehicleModelListView(generics.ListAPIView):
 
 class VehicleListView(generics.ListAPIView):
     """List all vehicles with filtering and search"""
-    queryset = Vehicle.objects.select_related('make', 'model').order_by('make__name', 'model__name')
+    queryset = Vehicle.objects.select_related('make', 'model').order_by('id')
     serializer_class = VehicleListSerializer
-    pagination_class = StandardResultsSetPagination
+    pagination_class = VehicleCursorPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
-    # Filter fields
     filterset_fields = {
         'make': ['exact'],
         'model': ['exact'],
@@ -70,12 +70,8 @@ class VehicleListView(generics.ListAPIView):
         'seating': ['exact', 'gte', 'lte'],
     }
 
-    # Search fields
     search_fields = ['make__name', 'model__name', 'model_number']
-
-    # Ordering fields
-    ordering_fields = ['crsp', 'make__name', 'model__name', 'engine_capacity']
-    ordering = ['make__name', 'model__name']
+    ordering_fields = ['id', 'crsp', 'make__name', 'model__name']
 
 
 class VehicleDetailView(generics.RetrieveAPIView):
@@ -108,12 +104,11 @@ class MotorcycleModelListView(generics.ListAPIView):
 
 class MotorcycleListView(generics.ListAPIView):
     """List all motorcycles with filtering and search"""
-    queryset = Motorcycle.objects.select_related('make', 'model').order_by('make__name', 'model__name')
+    queryset = Motorcycle.objects.select_related('make', 'model').order_by('id')
     serializer_class = MotorcycleListSerializer
-    pagination_class = StandardResultsSetPagination
+    pagination_class = VehicleCursorPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
-    # Filter fields
     filterset_fields = {
         'make': ['exact'],
         'model': ['exact'],
@@ -124,12 +119,8 @@ class MotorcycleListView(generics.ListAPIView):
         'seating': ['exact', 'gte', 'lte'],
     }
 
-    # Search fields
     search_fields = ['make__name', 'model__name', 'model_number']
-
-    # Ordering fields
-    ordering_fields = ['crsp', 'make__name', 'model__name', 'engine_capacity']
-    ordering = ['make__name', 'model__name']
+    ordering_fields = ['id', 'crsp', 'make__name', 'model__name']
 
 
 class MotorcycleDetailView(generics.RetrieveAPIView):
@@ -162,12 +153,11 @@ class HeavyMachineryModelListView(generics.ListAPIView):
 
 class HeavyMachineryListView(generics.ListAPIView):
     """List all heavy machinery with filtering and search"""
-    queryset = HeavyMachinery.objects.select_related('make', 'model').order_by('make__name', 'model__name')
+    queryset = HeavyMachinery.objects.select_related('make', 'model').order_by('id')
     serializer_class = HeavyMachineryListSerializer
-    pagination_class = StandardResultsSetPagination
+    pagination_class = VehicleCursorPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
 
-    # Filter fields
     filterset_fields = {
         'make': ['exact'],
         'model': ['exact'],
@@ -175,12 +165,8 @@ class HeavyMachineryListView(generics.ListAPIView):
         'crsp': ['gte', 'lte'],
     }
 
-    # Search fields
     search_fields = ['make__name', 'model__name', 'horsepower']
-
-    # Ordering fields
-    ordering_fields = ['crsp', 'make__name', 'model__name']
-    ordering = ['make__name', 'model__name']
+    ordering_fields = ['id', 'crsp', 'make__name', 'model__name']
 
 
 class HeavyMachineryDetailView(generics.RetrieveAPIView):
@@ -194,28 +180,17 @@ class HeavyMachineryDetailView(generics.RetrieveAPIView):
 @api_view(['GET'])
 def unified_search(request):
     """
-    Unified search across all vehicle types
-    Query params:
-    - q: search query (searches make, model, model_number)
-    - type: filter by type (vehicle, motorcycle, heavy_machinery)
-    - min_price: minimum CRSP
-    - max_price: maximum CRSP
-    - engine_min: minimum engine capacity
-    - engine_max: maximum engine capacity
-    - fuel_type: filter by fuel type
-    - body_type: filter by body type
-    - transmission: filter by transmission
+    Unified search across all vehicle types with cursor pagination support
     """
     query = request.GET.get('q', '')
     vehicle_type = request.GET.get('type', '')
     min_price = request.GET.get('min_price')
     max_price = request.GET.get('max_price')
-    engine_min = request.GET.get('engine_min')
-    engine_max = request.GET.get('engine_max')
     fuel_type = request.GET.get('fuel_type')
     body_type = request.GET.get('body_type')
     transmission = request.GET.get('transmission')
 
+    # For unified search, return all results (no pagination for search endpoint)
     results = []
 
     # Search vehicles
@@ -240,46 +215,20 @@ def unified_search(request):
         if transmission:
             vehicle_qs = vehicle_qs.filter(transmission=transmission)
 
-        # Engine capacity filtering (extract numeric value)
-        if engine_min or engine_max:
-            for vehicle in vehicle_qs:
-                try:
-                    engine_cc = int(''.join(filter(str.isdigit, vehicle.engine_capacity)))
-                    if engine_min and engine_cc < int(engine_min):
-                        continue
-                    if engine_max and engine_cc > int(engine_max):
-                        continue
-
-                    results.append({
-                        'id': vehicle.id,
-                        'type': 'vehicle',
-                        'make': vehicle.make.name,
-                        'model': vehicle.model.name,
-                        'details': f"{vehicle.engine_capacity} {vehicle.get_fuel_type_display()} {vehicle.get_transmission_display()}",
-                        'crsp': vehicle.crsp,
-                        'formatted_price': vehicle.formatted_price,
-                        'engine_capacity': vehicle.engine_capacity,
-                        'fuel_type': vehicle.fuel_type,
-                        'body_type': vehicle.body_type,
-                        'transmission': vehicle.transmission,
-                    })
-                except:
-                    pass
-        else:
-            for vehicle in vehicle_qs[:50]:  # Limit results
-                results.append({
-                    'id': vehicle.id,
-                    'type': 'vehicle',
-                    'make': vehicle.make.name,
-                    'model': vehicle.model.name,
-                    'details': f"{vehicle.engine_capacity} {vehicle.get_fuel_type_display()} {vehicle.get_transmission_display()}",
-                    'crsp': vehicle.crsp,
-                    'formatted_price': vehicle.formatted_price,
-                    'engine_capacity': vehicle.engine_capacity,
-                    'fuel_type': vehicle.fuel_type,
-                    'body_type': vehicle.body_type,
-                    'transmission': vehicle.transmission,
-                })
+        for vehicle in vehicle_qs[:100]:
+            results.append({
+                'id': vehicle.id,
+                'type': 'vehicle',
+                'make': vehicle.make.name,
+                'model': vehicle.model.name,
+                'details': f"{vehicle.engine_capacity} {vehicle.get_fuel_type_display()} {vehicle.get_transmission_display()}",
+                'crsp': vehicle.crsp,
+                'formatted_price': vehicle.formatted_price,
+                'engine_capacity': vehicle.engine_capacity,
+                'fuel_type': vehicle.fuel_type,
+                'body_type': vehicle.body_type,
+                'transmission': vehicle.transmission,
+            })
 
     # Search motorcycles
     if not vehicle_type or vehicle_type == 'motorcycle':
@@ -299,7 +248,7 @@ def unified_search(request):
         if transmission:
             motorcycle_qs = motorcycle_qs.filter(transmission=transmission)
 
-        for motorcycle in motorcycle_qs[:50]:  # Limit results
+        for motorcycle in motorcycle_qs[:100]:
             results.append({
                 'id': motorcycle.id,
                 'type': 'motorcycle',
@@ -329,7 +278,7 @@ def unified_search(request):
         if max_price:
             machinery_qs = machinery_qs.filter(crsp__lte=max_price)
 
-        for machinery in machinery_qs[:50]:  # Limit results
+        for machinery in machinery_qs[:100]:
             results.append({
                 'id': machinery.id,
                 'type': 'heavy_machinery',
@@ -340,20 +289,14 @@ def unified_search(request):
                 'formatted_price': machinery.formatted_price,
             })
 
-    # Sort results by price
     results.sort(key=lambda x: x['crsp'])
-
     serializer = VehicleSearchSerializer(results, many=True)
     return Response(serializer.data)
 
 
-# ============== OPTIONS VIEWS ==============
-
 @api_view(['GET'])
 def get_filter_options(request):
     """Get all available filter options for dropdowns"""
-
-    # Get unique values from database
     vehicle_transmissions = Vehicle.TRANSMISSION_CHOICES
     vehicle_drive_configs = Vehicle.DRIVE_CONFIG_CHOICES
     vehicle_body_types = Vehicle.BODY_TYPE_CHOICES
@@ -362,7 +305,6 @@ def get_filter_options(request):
     motorcycle_transmissions = Motorcycle.MOTORCYCLE_TRANSMISSION_CHOICES
     motorcycle_fuel_types = Motorcycle.MOTORCYCLE_FUEL_CHOICES
 
-    # Get price ranges
     vehicle_prices = Vehicle.objects.values_list('crsp', flat=True)
     motorcycle_prices = Motorcycle.objects.values_list('crsp', flat=True)
     machinery_prices = HeavyMachinery.objects.values_list('crsp', flat=True)
@@ -387,4 +329,3 @@ def get_filter_options(request):
             'max': float(max_price),
         }
     })
-
