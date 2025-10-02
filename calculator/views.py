@@ -1,4 +1,5 @@
-# calculator/views.py
+# calculator/views.py - Updated TaxCalculatorService class
+
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -22,66 +23,76 @@ class TaxCalculatorService:
     def get_depreciation_rate(import_type, years_old):
         """Get depreciation rate based on import type and age"""
         try:
-            rate = DepreciationRate.objects.get(
+            # Try to get the most specific rate (exact match or smallest range)
+            rates = DepreciationRate.objects.filter(
                 import_type=import_type,
                 years_from__lte=years_old,
                 years_to__gte=years_old
-            )
-            return rate.depreciation_percentage
-        except DepreciationRate.DoesNotExist:
-            # Default rates if not found in database
-            if import_type == 'DIRECT':
-                if years_old <= 0:
-                    return Decimal('0')
-                elif years_old <= 2:
-                    return Decimal('20')
-                elif years_old <= 3:
-                    return Decimal('30')
-                elif years_old <= 4:
-                    return Decimal('40')
-                elif years_old <= 5:
-                    return Decimal('50')
-                elif years_old <= 6:
-                    return Decimal('55')
-                elif years_old <= 7:
-                    return Decimal('60')
-                else:
-                    return Decimal('65')
-            else:  # PREVIOUSLY_REGISTERED
-                if years_old <= 0:
-                    return Decimal('0')
-                elif years_old == 1:
-                    return Decimal('20')
-                elif years_old == 2:
-                    return Decimal('35')
-                elif years_old == 3:
-                    return Decimal('50')
-                elif years_old == 4:
-                    return Decimal('60')
-                elif years_old == 5:
-                    return Decimal('70')
-                elif years_old == 6:
-                    return Decimal('75')
-                elif years_old == 7:
-                    return Decimal('80')
-                elif years_old == 8:
-                    return Decimal('83')
-                elif years_old == 9:
-                    return Decimal('86')
-                elif years_old == 10:
-                    return Decimal('89')
-                elif years_old == 11:
-                    return Decimal('90')
-                elif years_old == 12:
-                    return Decimal('91')
-                elif years_old == 13:
-                    return Decimal('92')
-                elif years_old == 14:
-                    return Decimal('93')
-                elif years_old == 15:
-                    return Decimal('94')
-                else:
-                    return Decimal('95')
+            ).order_by('years_from', '-years_to')
+
+            if rates.exists():
+                return rates.first().depreciation_percentage
+
+        except Exception as e:
+            print(f"Error getting depreciation rate from DB: {e}")
+
+        # Fallback to hardcoded rates
+        if import_type == 'DIRECT':
+            if years_old <= 0:
+                return Decimal('0')
+            elif years_old <= 1:
+                return Decimal('0')
+            elif years_old <= 2:
+                return Decimal('20')
+            elif years_old <= 3:
+                return Decimal('30')
+            elif years_old <= 4:
+                return Decimal('40')
+            elif years_old <= 5:
+                return Decimal('50')
+            elif years_old <= 6:
+                return Decimal('55')
+            elif years_old <= 7:
+                return Decimal('60')
+            elif years_old <= 8:
+                return Decimal('65')
+            else:
+                return Decimal('65')
+        else:  # PREVIOUSLY_REGISTERED
+            if years_old <= 0:
+                return Decimal('0')
+            elif years_old == 1:
+                return Decimal('20')
+            elif years_old == 2:
+                return Decimal('35')
+            elif years_old == 3:
+                return Decimal('50')
+            elif years_old == 4:
+                return Decimal('60')
+            elif years_old == 5:
+                return Decimal('70')
+            elif years_old == 6:
+                return Decimal('75')
+            elif years_old == 7:
+                return Decimal('80')
+            elif years_old == 8:
+                return Decimal('83')
+            elif years_old == 9:
+                return Decimal('86')
+            elif years_old == 10:
+                return Decimal('89')
+            elif years_old == 11:
+                return Decimal('90')
+            elif years_old == 12:
+                return Decimal('91')
+            elif years_old == 13:
+                return Decimal('92')
+            elif years_old == 14:
+                return Decimal('93')
+            elif years_old == 15:
+                return Decimal('94')
+            else:
+                return Decimal('95')
 
     @staticmethod
     def determine_vehicle_category(vehicle_type, vehicle_id):
@@ -97,9 +108,15 @@ class TaxCalculatorService:
             if vehicle.fuel_type in ['ELECTRIC']:
                 return 'VEHICLE_ELECTRIC'
 
-            # Parse engine capacity
+            # Parse engine capacity - handle various formats
+            engine_capacity_str = vehicle.engine_capacity
             try:
-                engine_cc = int(''.join(filter(str.isdigit, vehicle.engine_capacity)))
+                # Remove non-numeric characters except dots
+                engine_cc_str = ''.join(c for c in engine_capacity_str if c.isdigit() or c == '.')
+                if engine_cc_str:
+                    engine_cc = float(engine_cc_str)
+                else:
+                    engine_cc = 1500  # Default if parsing fails
             except:
                 engine_cc = 1500  # Default if parsing fails
 
@@ -127,24 +144,28 @@ class TaxCalculatorService:
                 'VEHICLE_1500CC_BELOW': {
                     'import_duty_rate': Decimal('35'),
                     'excise_duty_rate': Decimal('20'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('42.6')
                 },
                 'VEHICLE_ABOVE_1500CC': {
                     'import_duty_rate': Decimal('35'),
                     'excise_duty_rate': Decimal('25'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('40.9')
                 },
                 'VEHICLE_LUXURY': {
                     'import_duty_rate': Decimal('35'),
                     'excise_duty_rate': Decimal('35'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('37.8')
                 },
                 'VEHICLE_ELECTRIC': {
                     'import_duty_rate': Decimal('35'),
                     'excise_duty_rate': Decimal('10'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('46.4')
                 },
@@ -158,18 +179,21 @@ class TaxCalculatorService:
                 'HEAVY_MACHINERY': {
                     'import_duty_rate': Decimal('0'),
                     'excise_duty_rate': Decimal('0'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('69')
                 },
                 'AMBULANCE': {
                     'import_duty_rate': Decimal('0'),
                     'excise_duty_rate': Decimal('25'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('55.2')
                 },
                 'SPECIAL_PURPOSE': {
                     'import_duty_rate': Decimal('0'),
                     'excise_duty_rate': Decimal('0'),
+                    'excise_duty_fixed': None,
                     'vat_rate': Decimal('16'),
                     'customs_value_percentage': Decimal('69')
                 },
@@ -189,6 +213,7 @@ class TaxCalculatorService:
             return MockCategory({
                 'import_duty_rate': Decimal('35'),
                 'excise_duty_rate': Decimal('25'),
+                'excise_duty_fixed': None,
                 'vat_rate': Decimal('16'),
                 'customs_value_percentage': Decimal('40.9')
             })
@@ -217,7 +242,7 @@ class TaxCalculatorService:
 
         if hasattr(category, 'excise_duty_fixed') and category.excise_duty_fixed:
             excise_duty = category.excise_duty_fixed
-        elif category.excise_duty_rate:
+        elif hasattr(category, 'excise_duty_rate') and category.excise_duty_rate is not None:
             excise_duty = excise_value * (category.excise_duty_rate / Decimal('100'))
         else:
             excise_duty = Decimal('0')

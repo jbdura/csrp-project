@@ -36,7 +36,7 @@ urlpatterns = [
     path('api/', include('rest_framework.urls')),
     # path('api-auth/', include('rest_framework.urls', namespace='rest_framework')),
     path('api/vehicles/', include('vehicles.urls')),
-    path('calculator/', include('calculator.urls'))
+    path('api/calculator/', include('calculator.urls'))
 ]
 
 if settings.DEBUG:
