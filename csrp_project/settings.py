@@ -50,6 +50,7 @@ INSTALLED_APPS = [
     # Created apps
     'vehicles',
     'calculator',
+    'tax_calculator',  # ADD THIS
 
 ]
 
@@ -160,6 +161,12 @@ MEDIA_ROOT = BASE_DIR / 'media'
 
 # REST Framework Configuration
 REST_FRAMEWORK = {
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '1000/day',
+    },
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
         # Add token authentication if needed
