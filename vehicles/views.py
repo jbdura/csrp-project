@@ -20,26 +20,25 @@ from .serializers import (
     HeavyMachineryListSerializer, HeavyMachineryDetailSerializer,
     VehicleSearchSerializer
 )
+from .filters import VehicleFilter, MotorcycleFilter, HeavyMachineryFilter
 
 # Custom cursor pagination for better performance with large datasets
 class VehicleCursorPagination(CursorPagination):
     page_size = 50
     page_size_query_param = 'page_size'
     max_page_size = 100
-    ordering = 'id'  # Ensure consistent ordering
+    ordering = 'id'
 
 
 # ============== VEHICLE VIEWS ==============
 
 class VehicleMakeListView(generics.ListAPIView):
-    """List all vehicle makes"""
     queryset = VehicleMake.objects.all().order_by('name')
     serializer_class = VehicleMakeSerializer
     pagination_class = None
 
 
 class VehicleModelListView(generics.ListAPIView):
-    """List vehicle models, optionally filtered by make"""
     serializer_class = VehicleModelSerializer
     pagination_class = None
 
@@ -52,30 +51,16 @@ class VehicleModelListView(generics.ListAPIView):
 
 
 class VehicleListView(generics.ListAPIView):
-    """List all vehicles with filtering and search"""
     queryset = Vehicle.objects.select_related('make', 'model').order_by('id')
     serializer_class = VehicleListSerializer
     pagination_class = VehicleCursorPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-
-    filterset_fields = {
-        'make': ['exact'],
-        'model': ['exact'],
-        'transmission': ['exact'],
-        'drive_configuration': ['exact'],
-        'body_type': ['exact'],
-        'fuel_type': ['exact'],
-        'engine_capacity': ['exact', 'gte', 'lte'],
-        'crsp': ['gte', 'lte'],
-        'seating': ['exact', 'gte', 'lte'],
-    }
-
+    filterset_class = VehicleFilter
     search_fields = ['make__name', 'model__name', 'model_number']
     ordering_fields = ['id', 'crsp', 'make__name', 'model__name']
 
 
 class VehicleDetailView(generics.RetrieveAPIView):
-    """Get details of a specific vehicle"""
     queryset = Vehicle.objects.select_related('make', 'model')
     serializer_class = VehicleDetailSerializer
 
@@ -83,14 +68,12 @@ class VehicleDetailView(generics.RetrieveAPIView):
 # ============== MOTORCYCLE VIEWS ==============
 
 class MotorcycleMakeListView(generics.ListAPIView):
-    """List all motorcycle makes"""
     queryset = MotorcycleMake.objects.all().order_by('name')
     serializer_class = MotorcycleMakeSerializer
     pagination_class = None
 
 
 class MotorcycleModelListView(generics.ListAPIView):
-    """List motorcycle models, optionally filtered by make"""
     serializer_class = MotorcycleModelSerializer
     pagination_class = None
 
@@ -103,28 +86,16 @@ class MotorcycleModelListView(generics.ListAPIView):
 
 
 class MotorcycleListView(generics.ListAPIView):
-    """List all motorcycles with filtering and search"""
     queryset = Motorcycle.objects.select_related('make', 'model').order_by('id')
     serializer_class = MotorcycleListSerializer
     pagination_class = VehicleCursorPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-
-    filterset_fields = {
-        'make': ['exact'],
-        'model': ['exact'],
-        'transmission': ['exact'],
-        'fuel': ['exact'],
-        'engine_capacity': ['exact', 'gte', 'lte'],
-        'crsp': ['gte', 'lte'],
-        'seating': ['exact', 'gte', 'lte'],
-    }
-
+    filterset_class = MotorcycleFilter
     search_fields = ['make__name', 'model__name', 'model_number']
     ordering_fields = ['id', 'crsp', 'make__name', 'model__name']
 
 
 class MotorcycleDetailView(generics.RetrieveAPIView):
-    """Get details of a specific motorcycle"""
     queryset = Motorcycle.objects.select_related('make', 'model')
     serializer_class = MotorcycleDetailSerializer
 
@@ -132,14 +103,12 @@ class MotorcycleDetailView(generics.RetrieveAPIView):
 # ============== HEAVY MACHINERY VIEWS ==============
 
 class HeavyMachineryMakeListView(generics.ListAPIView):
-    """List all heavy machinery makes"""
     queryset = HeavyMachineryMake.objects.all().order_by('name')
     serializer_class = HeavyMachineryMakeSerializer
     pagination_class = None
 
 
 class HeavyMachineryModelListView(generics.ListAPIView):
-    """List heavy machinery models, optionally filtered by make"""
     serializer_class = HeavyMachineryModelSerializer
     pagination_class = None
 
@@ -152,25 +121,16 @@ class HeavyMachineryModelListView(generics.ListAPIView):
 
 
 class HeavyMachineryListView(generics.ListAPIView):
-    """List all heavy machinery with filtering and search"""
     queryset = HeavyMachinery.objects.select_related('make', 'model').order_by('id')
     serializer_class = HeavyMachineryListSerializer
     pagination_class = VehicleCursorPagination
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-
-    filterset_fields = {
-        'make': ['exact'],
-        'model': ['exact'],
-        'horsepower': ['exact', 'icontains'],
-        'crsp': ['gte', 'lte'],
-    }
-
+    filterset_class = HeavyMachineryFilter
     search_fields = ['make__name', 'model__name', 'horsepower']
     ordering_fields = ['id', 'crsp', 'make__name', 'model__name']
 
 
 class HeavyMachineryDetailView(generics.RetrieveAPIView):
-    """Get details of a specific heavy machinery"""
     queryset = HeavyMachinery.objects.select_related('make', 'model')
     serializer_class = HeavyMachineryDetailSerializer
 
@@ -179,9 +139,7 @@ class HeavyMachineryDetailView(generics.RetrieveAPIView):
 
 @api_view(['GET'])
 def unified_search(request):
-    """
-    Unified search across all vehicle types with cursor pagination support
-    """
+    """Unified search across all vehicle types"""
     query = request.GET.get('q', '')
     vehicle_type = request.GET.get('type', '')
     min_price = request.GET.get('min_price')
@@ -190,7 +148,6 @@ def unified_search(request):
     body_type = request.GET.get('body_type')
     transmission = request.GET.get('transmission')
 
-    # For unified search, return all results (no pagination for search endpoint)
     results = []
 
     # Search vehicles
