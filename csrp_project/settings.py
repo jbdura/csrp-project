@@ -111,10 +111,10 @@ CACHES = {
         'BACKEND': 'django.core.cache.backends.redis.RedisCache',
         'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/0'),
     },
-    'memcached': {
-        'BACKEND': 'django.core.cache.backends.memcached.PyLibMCCache',
-        'LOCATION': '127.0.0.1:11211',
-    }
+    # 'memcached': {
+    #     'BACKEND': 'django.core.cache.backends.memcached.PyLibMCCache',
+    #     'LOCATION': '127.0.0.1:11211',
+    # }
 }
 
 
