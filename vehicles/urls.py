@@ -26,4 +26,7 @@ urlpatterns = [
     # Unified search and options
     path('search/', views.unified_search, name='unified-search'),
     path('filter-options/', views.get_filter_options, name='filter-options'),
+
+    # counts
+    path('counts/', views.get_counts, name='counts'),
 ]

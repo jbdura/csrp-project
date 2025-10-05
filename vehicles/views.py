@@ -22,21 +22,42 @@ from .serializers import (
 )
 from .filters import VehicleFilter, MotorcycleFilter, HeavyMachineryFilter
 
+
+@api_view(['GET'])
+def get_counts(request):
+    """Get total counts for each vehicle type"""
+    vehicle_count = Vehicle.objects.count()
+    motorcycle_count = Motorcycle.objects.count()
+    machinery_count = HeavyMachinery.objects.count()
+    
+    return Response({
+        'vehicles': vehicle_count,
+        'motorcycles': motorcycle_count,
+        'machinery': machinery_count,
+    })
+
+
 # Custom cursor pagination for better performance with large datasets
 # Add this to VehicleCursorPagination class
 class VehicleCursorPagination(CursorPagination):
-    page_size = 50
+    page_size = 49
     page_size_query_param = 'page_size'
     max_page_size = 100
     ordering = 'id'
+    
+    def paginate_queryset(self, queryset, request, view=None):
+        # Store the total count before pagination
+        self.count = queryset.count()
+        return super().paginate_queryset(queryset, request, view)
     
     def get_paginated_response(self, data):
         return Response({
             'next': self.get_next_link(),
             'previous': self.get_previous_link(),
-            'count': self.page.paginator.count if hasattr(self.page, 'paginator') else None,
+            'count': getattr(self, 'count', None),
             'results': data
         })
+
 
 
 # ============== VEHICLE VIEWS ==============
