@@ -2,6 +2,8 @@
   <dictionary name="project">
     <words>
       <w>abcdefghijklmnopqrstuvwxyz</w>
+      <w>appstr</w>
+      <w>compat</w>
       <w>crsp</w>
       <w>csrftoken</w>
       <w>csrp</w>

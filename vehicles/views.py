@@ -23,11 +23,20 @@ from .serializers import (
 from .filters import VehicleFilter, MotorcycleFilter, HeavyMachineryFilter
 
 # Custom cursor pagination for better performance with large datasets
+# Add this to VehicleCursorPagination class
 class VehicleCursorPagination(CursorPagination):
     page_size = 50
     page_size_query_param = 'page_size'
     max_page_size = 100
     ordering = 'id'
+    
+    def get_paginated_response(self, data):
+        return Response({
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'count': self.page.paginator.count if hasattr(self.page, 'paginator') else None,
+            'results': data
+        })
 
 
 # ============== VEHICLE VIEWS ==============
