@@ -76,8 +76,8 @@ class Command(BaseCommand):
                 'category_type': 'HYBRID_VEHICLE',
                 'description': 'Hybrid vehicles (petrol/diesel + electric)',
                 'customs_factor': Decimal('0.409'),
-                'import_duty_rate': Decimal('25.00'),
-                'excise_duty_rate': Decimal('20.00'),
+                'import_duty_rate': Decimal('35.00'),
+                'excise_duty_rate': Decimal('25.00'),
             },
             {
                 'name': 'Bus',
