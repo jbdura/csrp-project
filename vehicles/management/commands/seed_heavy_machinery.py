@@ -182,13 +182,26 @@ class Command(BaseCommand):
 
             # Remove any non-numeric characters except decimal point
             crsp_str = str(crsp).replace(',', '').replace(' ', '').strip()
-            crsp_decimal = Decimal(crsp_str)
+
+            # Convert to float first, then to int to remove decimals, then to Decimal
+            # This handles Excel floating-point artifacts
+            crsp_decimal = Decimal(int(float(crsp_str)))
 
             if crsp_decimal < 0:
                 raise ValueError('CRSP cannot be negative')
 
         except (InvalidOperation, ValueError) as e:
             raise ValueError(f'Invalid CRSP value "{crsp}": {str(e)}')
+
+        # Clean horsepower to remove .0 decimals
+        try:
+            hp_float = float(horsepower)
+            if hp_float.is_integer():
+                horsepower = str(int(hp_float))
+            else:
+                horsepower = str(hp_float)
+        except (ValueError, TypeError):
+            horsepower = str(horsepower).strip()
 
         if not dry_run:
             # Get or create Make
@@ -214,23 +227,23 @@ class Command(BaseCommand):
 
             if created:
                 self.stdout.write(
-                    f'Created: {make_name} {model_name} - {horsepower} '
-                    f'(KES {crsp_decimal:,.2f})'
+                    f'Created: {make_name} {model_name} - {horsepower} HP '
+                    f'(KES {crsp_decimal:,})'
                 )
                 return 'success'
             else:
                 self.stdout.write(
                     self.style.WARNING(
-                        f'Updated: {make_name} {model_name} - {horsepower} '
-                        f'(KES {crsp_decimal:,.2f})'
+                        f'Updated: {make_name} {model_name} - {horsepower} HP '
+                        f'(KES {crsp_decimal:,})'
                     )
                 )
                 return 'skipped'
         else:
             # Dry run - just validate
             self.stdout.write(
-                f'Would create: {make_name} {model_name} - {horsepower} '
-                f'(KES {crsp_decimal:,.2f})'
+                f'Would create: {make_name} {model_name} - {horsepower} HP '
+                f'(KES {crsp_decimal:,})'
             )
             return 'success'
 
@@ -263,8 +276,14 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
         try:
             make_name = str(row['MAKE']).strip()
             model_name = str(row['MODEL']).strip()
-            horsepower = str(row['HORSEPOWER']).strip()
-            crsp = Decimal(str(row['CRSP']).replace(',', '').strip())
+
+            # Clean horsepower
+            hp_float = float(row['HORSEPOWER'])
+            horsepower = str(int(hp_float)) if hp_float.is_integer() else str(hp_float)
+
+            # Clean CRSP - convert to int to remove decimals
+            crsp_value = str(row['CRSP']).replace(',', '').strip()
+            crsp = Decimal(int(float(crsp_value)))
 
             # Get or create Make
             make, _ = HeavyMachineryMake.objects.get_or_create(name=make_name)
@@ -285,7 +304,7 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
 
             success_count += 1
             status = "Created" if created else "Updated"
-            print(f"{status}: {make_name} {model_name} - {horsepower}")
+            print(f"{status}: {make_name} {model_name} - {horsepower} HP (KES {crsp:,})")
 
         except Exception as e:
             error_count += 1
@@ -293,4 +312,3 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
 
     print(f"\nCompleted: {success_count} successful, {error_count} errors")
     return success_count, error_count
-
