@@ -69,17 +69,8 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('DRY RUN MODE - No data will be saved'))
 
         try:
-            # Read the Excel file with specific dtype to preserve data types
-            df = pd.read_excel(
-                file_path,
-                sheet_name=sheet_name,
-                dtype={
-                    'MAKE': str,
-                    'MODEL': str,
-                    'HORSEPOWER': str,  # Keep as string to preserve original format
-                    'CRSP': str  # Read as string first to handle commas
-                }
-            )
+            # Read the Excel file
+            df = pd.read_excel(file_path, sheet_name=sheet_name)
 
             # Clean column names (remove extra spaces)
             df.columns = df.columns.str.strip()
@@ -91,14 +82,13 @@ class Command(BaseCommand):
             if missing_columns:
                 raise CommandError(f'Missing required columns: {", ".join(missing_columns)}')
 
-            # Clean the dataframe - remove rows where any required field is NaN
+            # Clean the dataframe
             df = df.dropna(subset=['MAKE', 'MODEL', 'HORSEPOWER', 'CRSP'])
 
-            # Strip whitespace from string columns
-            df['MAKE'] = df['MAKE'].str.strip()
-            df['MODEL'] = df['MODEL'].str.strip()
-            df['HORSEPOWER'] = df['HORSEPOWER'].str.strip()
-            df['CRSP'] = df['CRSP'].str.strip()
+            # Convert columns to string and strip whitespace
+            df['MAKE'] = df['MAKE'].astype(str).str.strip()
+            df['MODEL'] = df['MODEL'].astype(str).str.strip()
+            df['HORSEPOWER'] = df['HORSEPOWER'].astype(str).str.strip()
 
             total_rows = len(df)
             self.stdout.write(f'Found {total_rows} rows to process')
@@ -177,56 +167,28 @@ class Command(BaseCommand):
             )
         )
 
-    def clean_horsepower(self, horsepower_str):
-        """Clean horsepower string, removing .0 if it's a whole number"""
-        hp = str(horsepower_str).strip()
-
-        # If it ends with .0, remove it
-        if hp.endswith('.0'):
-            hp = hp[:-2]
-
-        return hp
-
-    def clean_crsp_value(self, crsp_str):
-        """Clean and convert CRSP value to Decimal"""
-        # Remove commas and spaces
-        cleaned = str(crsp_str).replace(',', '').replace(' ', '').strip()
-
-        # Handle the case where it might be read as float
-        if '.' in cleaned:
-            # Check if it's essentially a whole number (like 3165041.0)
-            try:
-                float_val = float(cleaned)
-                if float_val.is_integer():
-                    cleaned = str(int(float_val))
-                else:
-                    # Round to 2 decimal places if it has real decimals
-                    cleaned = f"{float_val:.2f}"
-            except ValueError:
-                pass
-
-        return Decimal(cleaned)
-
     def process_row(self, row, dry_run=False):
         """Process a single row from the DataFrame"""
-        make_name = str(row['MAKE']).strip()
-        model_name = str(row['MODEL']).strip()
-        horsepower = self.clean_horsepower(row['HORSEPOWER'])
-        crsp_raw = row['CRSP']
+        make_name = row['MAKE']
+        model_name = row['MODEL']
+        horsepower = row['HORSEPOWER']
+        crsp = row['CRSP']
 
         # Validate and clean CRSP value
         try:
             # Convert CRSP to Decimal
-            if pd.isna(crsp_raw):
+            if pd.isna(crsp):
                 raise ValueError('CRSP value is missing')
 
-            crsp_decimal = self.clean_crsp_value(crsp_raw)
+            # Remove any non-numeric characters except decimal point
+            crsp_str = str(crsp).replace(',', '').replace(' ', '').strip()
+            crsp_decimal = Decimal(crsp_str)
 
             if crsp_decimal < 0:
                 raise ValueError('CRSP cannot be negative')
 
         except (InvalidOperation, ValueError) as e:
-            raise ValueError(f'Invalid CRSP value "{crsp_raw}": {str(e)}')
+            raise ValueError(f'Invalid CRSP value "{crsp}": {str(e)}')
 
         if not dry_run:
             # Get or create Make
@@ -252,14 +214,14 @@ class Command(BaseCommand):
 
             if created:
                 self.stdout.write(
-                    f'Created: {make_name} {model_name} - HP: {horsepower} '
+                    f'Created: {make_name} {model_name} - {horsepower} '
                     f'(KES {crsp_decimal:,.2f})'
                 )
                 return 'success'
             else:
                 self.stdout.write(
                     self.style.WARNING(
-                        f'Updated: {make_name} {model_name} - HP: {horsepower} '
+                        f'Updated: {make_name} {model_name} - {horsepower} '
                         f'(KES {crsp_decimal:,.2f})'
                     )
                 )
@@ -267,7 +229,7 @@ class Command(BaseCommand):
         else:
             # Dry run - just validate
             self.stdout.write(
-                f'Would create: {make_name} {model_name} - HP: {horsepower} '
+                f'Would create: {make_name} {model_name} - {horsepower} '
                 f'(KES {crsp_decimal:,.2f})'
             )
             return 'success'
@@ -290,18 +252,7 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
         HeavyMachineryMake.objects.all().delete()
         print("Cleared existing data")
 
-    # Read with specific dtypes
-    df = pd.read_excel(
-        file_path,
-        sheet_name=sheet_name,
-        dtype={
-            'MAKE': str,
-            'MODEL': str,
-            'HORSEPOWER': str,
-            'CRSP': str
-        }
-    )
-
+    df = pd.read_excel(file_path, sheet_name=sheet_name)
     df.columns = df.columns.str.strip()
     df = df.dropna(subset=['MAKE', 'MODEL', 'HORSEPOWER', 'CRSP'])
 
@@ -312,22 +263,8 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
         try:
             make_name = str(row['MAKE']).strip()
             model_name = str(row['MODEL']).strip()
-
-            # Clean horsepower - remove .0 if present
             horsepower = str(row['HORSEPOWER']).strip()
-            if horsepower.endswith('.0'):
-                horsepower = horsepower[:-2]
-
-            # Clean CRSP - remove commas and handle as integer if no decimals
-            crsp_str = str(row['CRSP']).replace(',', '').strip()
-            if '.' in crsp_str:
-                float_val = float(crsp_str)
-                if float_val.is_integer():
-                    crsp = Decimal(int(float_val))
-                else:
-                    crsp = Decimal(f"{float_val:.2f}")
-            else:
-                crsp = Decimal(crsp_str)
+            crsp = Decimal(str(row['CRSP']).replace(',', '').strip())
 
             # Get or create Make
             make, _ = HeavyMachineryMake.objects.get_or_create(name=make_name)
@@ -348,7 +285,7 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
 
             success_count += 1
             status = "Created" if created else "Updated"
-            print(f"{status}: {make_name} {model_name} - HP: {horsepower} (KES {crsp:,.2f})")
+            print(f"{status}: {make_name} {model_name} - {horsepower}")
 
         except Exception as e:
             error_count += 1
@@ -356,3 +293,4 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
 
     print(f"\nCompleted: {success_count} successful, {error_count} errors")
     return success_count, error_count
+
