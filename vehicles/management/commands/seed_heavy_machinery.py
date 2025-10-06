@@ -7,7 +7,6 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.conf import settings
 
-# Import your models - adjust the import path based on vehicles
 from vehicles.models import HeavyMachineryMake, HeavyMachineryModel, HeavyMachinery
 
 
@@ -76,19 +75,29 @@ class Command(BaseCommand):
             df.columns = df.columns.str.strip()
 
             # Check required columns
-            required_columns = ['MAKE', 'MODEL', 'HORSEPOWER', 'CRSP']
+            required_columns = ['MAKE', 'MODEL', 'CRSP']
             missing_columns = [col for col in required_columns if col not in df.columns]
 
             if missing_columns:
                 raise CommandError(f'Missing required columns: {", ".join(missing_columns)}')
 
-            # Clean the dataframe
-            df = df.dropna(subset=['MAKE', 'MODEL', 'HORSEPOWER', 'CRSP'])
+            # Clean the dataframe - only drop rows missing MAKE, MODEL, or CRSP
+            # HORSEPOWER is now optional
+            df = df.dropna(subset=['MAKE', 'MODEL', 'CRSP'])
 
             # Convert columns to string and strip whitespace
             df['MAKE'] = df['MAKE'].astype(str).str.strip()
             df['MODEL'] = df['MODEL'].astype(str).str.strip()
-            df['HORSEPOWER'] = df['HORSEPOWER'].astype(str).str.strip()
+
+            # Handle HORSEPOWER - it might not exist or might be empty
+            if 'HORSEPOWER' in df.columns:
+                # Replace NaN with None, convert to string where not null
+                df['HORSEPOWER'] = df['HORSEPOWER'].apply(
+                    lambda x: None if pd.isna(x) else str(x).strip()
+                )
+            else:
+                # If column doesn't exist, add it with None values
+                df['HORSEPOWER'] = None
 
             total_rows = len(df)
             self.stdout.write(f'Found {total_rows} rows to process')
@@ -171,7 +180,7 @@ class Command(BaseCommand):
         """Process a single row from the DataFrame"""
         make_name = row['MAKE']
         model_name = row['MODEL']
-        horsepower = row['HORSEPOWER']
+        horsepower = row.get('HORSEPOWER')  # Use .get() to safely access
         crsp = row['CRSP']
 
         # Validate and clean CRSP value
@@ -183,9 +192,12 @@ class Command(BaseCommand):
             # Remove any non-numeric characters except decimal point
             crsp_str = str(crsp).replace(',', '').replace(' ', '').strip()
 
-            # Convert to float first, then to int to remove decimals, then to Decimal
-            # This handles Excel floating-point artifacts
-            crsp_decimal = Decimal(int(float(crsp_str)))
+            # Convert to float first, then round to remove floating-point artifacts
+            # Then convert to Decimal with 2 decimal places
+            crsp_float = float(crsp_str)
+            # Round to nearest integer to remove .29, .99 artifacts
+            crsp_rounded = round(crsp_float)
+            crsp_decimal = Decimal(str(crsp_rounded))
 
             if crsp_decimal < 0:
                 raise ValueError('CRSP cannot be negative')
@@ -193,15 +205,18 @@ class Command(BaseCommand):
         except (InvalidOperation, ValueError) as e:
             raise ValueError(f'Invalid CRSP value "{crsp}": {str(e)}')
 
-        # Clean horsepower to remove .0 decimals
-        try:
-            hp_float = float(horsepower)
-            if hp_float.is_integer():
-                horsepower = str(int(hp_float))
-            else:
-                horsepower = str(hp_float)
-        except (ValueError, TypeError):
-            horsepower = str(horsepower).strip()
+        # Clean horsepower to remove .0 decimals (if present)
+        if horsepower is not None and not pd.isna(horsepower):
+            try:
+                hp_float = float(horsepower)
+                if hp_float.is_integer():
+                    horsepower = str(int(hp_float))
+                else:
+                    horsepower = str(hp_float)
+            except (ValueError, TypeError):
+                horsepower = str(horsepower).strip()
+        else:
+            horsepower = None  # No horsepower for this machinery
 
         if not dry_run:
             # Get or create Make
@@ -225,24 +240,27 @@ class Command(BaseCommand):
                 }
             )
 
+            # Display message
+            hp_display = f'{horsepower} HP' if horsepower else 'No engine'
             if created:
                 self.stdout.write(
-                    f'Created: {make_name} {model_name} - {horsepower} HP '
+                    f'Created: {make_name} {model_name} - {hp_display} '
                     f'(KES {crsp_decimal:,})'
                 )
                 return 'success'
             else:
                 self.stdout.write(
                     self.style.WARNING(
-                        f'Updated: {make_name} {model_name} - {horsepower} HP '
+                        f'Updated: {make_name} {model_name} - {hp_display} '
                         f'(KES {crsp_decimal:,})'
                     )
                 )
                 return 'skipped'
         else:
             # Dry run - just validate
+            hp_display = f'{horsepower} HP' if horsepower else 'No engine'
             self.stdout.write(
-                f'Would create: {make_name} {model_name} - {horsepower} HP '
+                f'Would create: {make_name} {model_name} - {hp_display} '
                 f'(KES {crsp_decimal:,})'
             )
             return 'success'
@@ -267,7 +285,17 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
 
     df = pd.read_excel(file_path, sheet_name=sheet_name)
     df.columns = df.columns.str.strip()
-    df = df.dropna(subset=['MAKE', 'MODEL', 'HORSEPOWER', 'CRSP'])
+
+    # Only require MAKE, MODEL, and CRSP
+    df = df.dropna(subset=['MAKE', 'MODEL', 'CRSP'])
+
+    # Handle HORSEPOWER column
+    if 'HORSEPOWER' in df.columns:
+        df['HORSEPOWER'] = df['HORSEPOWER'].apply(
+            lambda x: None if pd.isna(x) else str(x).strip()
+        )
+    else:
+        df['HORSEPOWER'] = None
 
     success_count = 0
     error_count = 0
@@ -277,13 +305,19 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
             make_name = str(row['MAKE']).strip()
             model_name = str(row['MODEL']).strip()
 
-            # Clean horsepower
-            hp_float = float(row['HORSEPOWER'])
-            horsepower = str(int(hp_float)) if hp_float.is_integer() else str(hp_float)
+            # Clean horsepower (if present)
+            horsepower_raw = row.get('HORSEPOWER')
+            if horsepower_raw is not None and not pd.isna(horsepower_raw):
+                hp_float = float(horsepower_raw)
+                horsepower = str(int(hp_float)) if hp_float.is_integer() else str(hp_float)
+            else:
+                horsepower = None
 
-            # Clean CRSP - convert to int to remove decimals
+            # Clean CRSP - convert to int to remove decimal artifacts
             crsp_value = str(row['CRSP']).replace(',', '').strip()
-            crsp = Decimal(int(float(crsp_value)))
+            crsp_float = float(crsp_value)
+            crsp_rounded = round(crsp_float)  # Round to remove .29, .99 etc
+            crsp = Decimal(str(crsp_rounded))
 
             # Get or create Make
             make, _ = HeavyMachineryMake.objects.get_or_create(name=make_name)
@@ -304,7 +338,8 @@ def seed_heavy_machinery_from_excel(file_path='for_machinery.xlsx',
 
             success_count += 1
             status = "Created" if created else "Updated"
-            print(f"{status}: {make_name} {model_name} - {horsepower} HP (KES {crsp:,})")
+            hp_display = f'{horsepower} HP' if horsepower else 'No engine'
+            print(f"{status}: {make_name} {model_name} - {hp_display} (KES {crsp:,})")
 
         except Exception as e:
             error_count += 1

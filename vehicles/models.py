@@ -199,9 +199,13 @@ class HeavyMachineryModel(models.Model):
 class HeavyMachinery(models.Model):
     make = models.ForeignKey(HeavyMachineryMake, on_delete=models.CASCADE)
     model = models.ForeignKey(HeavyMachineryModel, on_delete=models.CASCADE)
-    horsepower = models.CharField(max_length=50)  # Stored as string for flexibility (e.g., "150HP", "150-200HP")
+    horsepower = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text='Horsepower (leave empty if no engine)'
+    )  # Now optional for machinery without engines
 
-    # Updated CRSP field with better constraints for money
     crsp = models.DecimalField(
         max_digits=15,
         decimal_places=2,
@@ -214,7 +218,9 @@ class HeavyMachinery(models.Model):
         unique_together = ['make', 'model', 'horsepower']
 
     def __str__(self):
-        return f"{self.make.name} {self.model.name} - {self.horsepower}"
+        if self.horsepower:
+            return f"{self.make.name} {self.model.name} - {self.horsepower} HP"
+        return f"{self.make.name} {self.model.name}"
 
     @property
     def crsp_in_cents(self):
